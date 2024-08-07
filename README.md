@@ -8,11 +8,13 @@ Single thread usage example:
 ```rust
 use std::io::{read_to_string, Write};
 
-let ( mut writer, reader) = io_pipe::pipe();
-_ = writer.write("hello".as_bytes()).unwrap();
-drop(writer);
+fn main() {
+    let (mut writer, reader) = io_pipe::pipe();
+    _ = writer.write("hello".as_bytes()).unwrap();
+    drop(writer);
 
-assert_eq!("hello".to_string(), read_to_string(reader).unwrap());
+    assert_eq!("hello".to_string(), read_to_string(reader).unwrap());
+}
 ```
 
 Multi thread usage example:
@@ -22,12 +24,14 @@ use std::io::{read_to_string, Write};
 use std::thread::spawn;
 use io_pipe::pipe;
 
-let ( mut writer, reader) = pipe();
-spawn({
-move | | {
-_ = writer.write("hello".as_bytes()).unwrap();
-}
-});
+fn main() {
+    let (mut writer, reader) = pipe();
+    spawn({
+        move || {
+            _ = writer.write("hello".as_bytes()).unwrap();
+        }
+    });
 
-assert_eq!("hello".len(), read_to_string(reader).unwrap().len());
+    assert_eq!("hello".len(), read_to_string(reader).unwrap().len());
+}
 ```
