@@ -1,7 +1,24 @@
 # IO Pipe library
 
+![Crates.io Version](https://img.shields.io/crates/v/io-pipe)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/Mnwa/io-pipe/rust.yml)
+![docs.rs](https://img.shields.io/docsrs/io-pipe)
+![Crates.io License](https://img.shields.io/crates/l/io-pipe)
+
 This library add a thread safe way to create multi writers and single reader pipeline.
 Best way to use that library is writing bytes in few threads and reading that bytes in another single thread.
+
+## How to
+
+docs.rs documentation is [here](https://docs.rs/io-pipe/latest/io_pipe/)
+
+### Install
+
+```bash
+cargo install io-pipe
+```
+
+### Use
 
 Single thread usage example:
 
@@ -35,3 +52,8 @@ fn main() {
     assert_eq!("hello".len(), read_to_string(reader).unwrap().len());
 }
 ```
+
+## Contributing
+
+Feel free for creating new PR.
+Use rustfmt and clippy checks before commiting.
