@@ -2,7 +2,7 @@
 name = "io-pipe"
 description = "This library add a thread safe way to create multi writers and single reader pipeline."
 authors = ["Mnwa <nikhail@panfilov.tech>"]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 categories = ["algorithms", "data-structures", "concurrency"]
 license = "MIT"
