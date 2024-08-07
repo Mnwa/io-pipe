@@ -33,6 +33,7 @@ use std::{
     io::{Error, ErrorKind, Read, Result as IOResult, Write},
     sync::mpsc::{channel, Receiver, Sender},
 };
+use std::io::IoSlice;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 
@@ -84,7 +85,22 @@ impl Write for Writer {
     fn write(&mut self, buf: &[u8]) -> IOResult<usize> {
         match self.sender.send(Bytes::copy_from_slice(buf)) {
             Ok(_) => Ok(buf.len()),
-            Err(e) => Err(Error::new(ErrorKind::BrokenPipe, e)),
+            Err(e) => Err(Error::new(ErrorKind::WriteZero, e)),
+        }
+    }
+
+    fn write_vectored(&mut self, bufs: &[IoSlice<'_>]) -> IOResult<usize> {
+        let mut data = BytesMut::new();
+        for buf in bufs {
+            data.put_slice(buf)
+        }
+
+        let buf = data.freeze();
+        let buf_len = buf.len();
+
+        match self.sender.send(buf) {
+            Ok(_) => Ok(buf_len),
+            Err(e) => Err(Error::new(ErrorKind::WriteZero, e)),
         }
     }
 
@@ -130,7 +146,7 @@ impl Read for Reader {
 }
 #[cfg(test)]
 mod tests {
-    use std::io::{read_to_string, Write};
+    use std::io::{IoSlice, read_to_string, Write};
     use std::thread::spawn;
 
     use crate::pipe;
@@ -140,6 +156,19 @@ mod tests {
         let (mut writer, reader) = pipe();
         _ = writer.write("hello ".as_bytes()).unwrap();
         _ = writer.write("world".as_bytes()).unwrap();
+        drop(writer);
+
+        assert_eq!("hello world".to_string(), read_to_string(reader).unwrap());
+    }
+    #[test]
+    fn base_vectored_case() {
+        let (mut writer, reader) = pipe();
+        _ = writer
+            .write_vectored(&[
+                IoSlice::new("hello ".as_bytes()),
+                IoSlice::new("world".as_bytes()),
+            ])
+            .unwrap();
         drop(writer);
 
         assert_eq!("hello world".to_string(), read_to_string(reader).unwrap());
