@@ -113,6 +113,7 @@ impl Write for Writer {
 
 /// ## Single reader
 /// The reader will produce bytes until all writers not dropped.
+/// It's also implements `BufRead` trait for buffer reading
 ///
 /// Example:
 /// ```rust
