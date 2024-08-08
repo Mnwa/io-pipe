@@ -29,11 +29,11 @@
 //! assert_eq!("hello".len(), read_to_string(reader).unwrap().len());
 //! ```
 
-use std::io::IoSlice;
 use std::{
     io::{Error, ErrorKind, Read, Result as IOResult, Write},
     sync::mpsc::{channel, Receiver, Sender},
 };
+use std::io::{BufRead, IoSlice};
 
 type Data = Vec<u8>;
 
@@ -84,27 +84,6 @@ pub struct Writer {
     sender: Sender<Data>,
 }
 
-/// ## Single reader
-/// The reader will produce bytes until all writers not dropped.
-///
-/// Example:
-/// ```rust
-/// use std::io::{read_to_string, Write};
-/// use io_pipe::pipe;
-/// let (mut writer, reader) = pipe();
-/// _ = writer.write("hello".as_bytes()).unwrap();
-/// drop(writer);
-///
-/// assert_eq!("hello".to_string(), read_to_string(reader).unwrap());
-/// ```
-///
-/// Important: easies case to get deadlock is read from reader when writer is not dropped in single thread
-#[derive(Debug)]
-pub struct Reader {
-    receiver: Receiver<Data>,
-    buf: Data,
-}
-
 impl Write for Writer {
     fn write(&mut self, buf: &[u8]) -> IOResult<usize> {
         match self.sender.send(buf.to_vec()) {
@@ -132,20 +111,51 @@ impl Write for Writer {
     }
 }
 
+/// ## Single reader
+/// The reader will produce bytes until all writers not dropped.
+///
+/// Example:
+/// ```rust
+/// use std::io::{read_to_string, Write};
+/// use io_pipe::pipe;
+/// let (mut writer, reader) = pipe();
+/// _ = writer.write("hello".as_bytes()).unwrap();
+/// drop(writer);
+///
+/// assert_eq!("hello".to_string(), read_to_string(reader).unwrap());
+/// ```
+///
+/// Important: easies case to get deadlock is read from reader when writer is not dropped in single thread
+#[derive(Debug)]
+pub struct Reader {
+    receiver: Receiver<Data>,
+    buf: Data,
+}
+
+impl BufRead for Reader {
+    fn fill_buf(&mut self) -> IOResult<&[u8]> {
+        Ok(self.buf.as_ref())
+    }
+
+    fn consume(&mut self, amt: usize) {
+        self.buf.drain(..amt);
+    }
+}
+
 impl Read for Reader {
     fn read(&mut self, mut buf: &mut [u8]) -> IOResult<usize> {
         if let Ok(data) = self.receiver.recv() {
             self.buf.extend(data);
         }
 
-        let n = buf.write(self.buf.as_ref())?;
-        self.buf.drain(..n);
+        let n = buf.write(self.fill_buf()?)?;
+        self.consume(n);
         Ok(n)
     }
 }
 #[cfg(test)]
 mod tests {
-    use std::io::{read_to_string, IoSlice, Write};
+    use std::io::{IoSlice, read_to_string, Write};
     use std::thread::spawn;
 
     use crate::pipe;
