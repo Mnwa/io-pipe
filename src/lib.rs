@@ -97,12 +97,13 @@ impl Write for Writer {
     }
 
     fn write_vectored(&mut self, bufs: &[IoSlice<'_>]) -> IOResult<usize> {
-        let data_len = bufs.iter().map(|b| b.len()).sum();
-        let mut data = Data::with_capacity(data_len);
+        let data = bufs
+            .iter()
+            .flat_map(|b| b.as_ref())
+            .copied()
+            .collect::<Vec<_>>();
 
-        for buf in bufs {
-            data.extend_from_slice(buf)
-        }
+        let data_len = data.len();
 
         match self.sender.send(data) {
             Ok(_) => Ok(data_len),
