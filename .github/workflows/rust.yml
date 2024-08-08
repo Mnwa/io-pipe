@@ -35,4 +35,4 @@ jobs:
       - name: Rustfmt Check
         uses: actions-rust-lang/rustfmt@v1
       - name: Clippy Check
-        run: actions-rust-lang/clippy@v1
+        run: cargo clippy -- -Dwarnings
