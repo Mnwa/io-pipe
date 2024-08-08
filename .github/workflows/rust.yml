@@ -11,6 +11,7 @@ env:
 
 jobs:
   build:
+    name: Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,6 +19,7 @@ jobs:
         run: cargo build --verbose
 
   test:
+    name: Testing
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,14 +27,14 @@ jobs:
         run: cargo test --verbose
   
   formatting:
-    name: cargo fmt
+    name: Code quality checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          components: [ "rustfmt", "clippy" ]
+          components: rustfmt, clippy
       - name: Rustfmt Check
         uses: actions-rust-lang/rustfmt@v1
       - name: Clippy Check
-        run: cargo clippy
+        run: cargo clippy -- -Dwarnings
