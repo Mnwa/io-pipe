@@ -35,7 +35,31 @@ use std::{
 };
 use std::io::IoSlice;
 
-use bytes::{Buf, BufMut, Bytes, BytesMut};
+type Data = Vec<u8>;
+
+/// ## Create multi writer and single reader objects
+///
+/// Example
+/// ```rust
+/// use std::io::{read_to_string, Write};
+///
+/// let (mut writer, reader) = io_pipe::pipe();
+/// _ = writer.write("hello".as_bytes()).unwrap();
+/// drop(writer);
+///
+/// assert_eq!("hello".to_string(), read_to_string(reader).unwrap());
+/// ```
+pub fn pipe() -> (Writer, Reader) {
+    let (sender, receiver) = channel();
+
+    (
+        Writer { sender },
+        Reader {
+            receiver,
+            buf: Data::new(),
+        },
+    )
+}
 
 /// ## Multi writer
 /// You can clone this writer to write bytes from different threads.
@@ -57,7 +81,7 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 /// ```
 #[derive(Clone, Debug)]
 pub struct Writer {
-    sender: Sender<Bytes>,
+    sender: Sender<Data>,
 }
 
 /// ## Single reader
@@ -77,29 +101,28 @@ pub struct Writer {
 /// Important: easies case to get deadlock is read from reader when writer is not dropped in single thread
 #[derive(Debug)]
 pub struct Reader {
-    receiver: Receiver<Bytes>,
-    buf: BytesMut,
+    receiver: Receiver<Data>,
+    buf: Data,
 }
 
 impl Write for Writer {
     fn write(&mut self, buf: &[u8]) -> IOResult<usize> {
-        match self.sender.send(Bytes::copy_from_slice(buf)) {
+        match self.sender.send(buf.to_vec()) {
             Ok(_) => Ok(buf.len()),
             Err(e) => Err(Error::new(ErrorKind::WriteZero, e)),
         }
     }
 
     fn write_vectored(&mut self, bufs: &[IoSlice<'_>]) -> IOResult<usize> {
-        let mut data = BytesMut::new();
+        let mut data = Data::new();
         for buf in bufs {
-            data.put_slice(buf)
+            data.extend_from_slice(buf)
         }
 
-        let buf = data.freeze();
-        let buf_len = buf.len();
+        let data_len = data.len();
 
-        match self.sender.send(buf) {
-            Ok(_) => Ok(buf_len),
+        match self.sender.send(data) {
+            Ok(_) => Ok(data_len),
             Err(e) => Err(Error::new(ErrorKind::WriteZero, e)),
         }
     }
@@ -109,38 +132,14 @@ impl Write for Writer {
     }
 }
 
-/// ## Create multi writer and single reader objects
-///
-/// Example
-/// ```rust
-/// use std::io::{read_to_string, Write};
-///
-/// let (mut writer, reader) = io_pipe::pipe();
-/// _ = writer.write("hello".as_bytes()).unwrap();
-/// drop(writer);
-///
-/// assert_eq!("hello".to_string(), read_to_string(reader).unwrap());
-/// ```
-pub fn pipe() -> (Writer, Reader) {
-    let (sender, receiver) = channel();
-
-    (
-        Writer { sender },
-        Reader {
-            receiver,
-            buf: BytesMut::new(),
-        },
-    )
-}
-
 impl Read for Reader {
     fn read(&mut self, mut buf: &mut [u8]) -> IOResult<usize> {
         if let Ok(data) = self.receiver.recv() {
-            self.buf.put(data);
+            self.buf.extend(data);
         }
 
         let n = buf.write(self.buf.as_ref())?;
-        self.buf.advance(n);
+        self.buf.drain(..n);
         Ok(n)
     }
 }
