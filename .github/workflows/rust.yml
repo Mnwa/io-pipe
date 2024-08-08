@@ -13,25 +13,28 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --verbose
+      - uses: actions/checkout@v4
+      - name: Build
+        run: cargo build --verbose
 
   test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - name: Run tests
-      run: cargo test --verbose
+      - uses: actions/checkout@v4
+      - name: Run tests
+        run: cargo test --verbose
   
   formatting:
     name: cargo fmt
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # Ensure rustfmt is installed and setup problem matcher
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          components: rustfmt
+          components:
+            - rustfmt
+            - clippy
       - name: Rustfmt Check
         uses: actions-rust-lang/rustfmt@v1
+      - name: Clippy Check
+        run: cargo clippy
