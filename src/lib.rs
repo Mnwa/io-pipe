@@ -29,11 +29,11 @@
 //! assert_eq!("hello".len(), read_to_string(reader).unwrap().len());
 //! ```
 
+use std::io::IoSlice;
 use std::{
     io::{Error, ErrorKind, Read, Result as IOResult, Write},
     sync::mpsc::{channel, Receiver, Sender},
 };
-use std::io::IoSlice;
 
 type Data = Vec<u8>;
 
@@ -145,7 +145,7 @@ impl Read for Reader {
 }
 #[cfg(test)]
 mod tests {
-    use std::io::{IoSlice, read_to_string, Write};
+    use std::io::{read_to_string, IoSlice, Write};
     use std::thread::spawn;
 
     use crate::pipe;

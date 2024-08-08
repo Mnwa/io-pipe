@@ -1,6 +1,6 @@
 use std::io::{IoSlice, Read, Write};
 
-use criterion::{BatchSize, black_box, Criterion, criterion_group, criterion_main};
+use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 
 fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("single writes", |b| {
