@@ -7,7 +7,7 @@
 //! use std::io::{read_to_string, Write};
 //!
 //! let (mut writer, reader) = io_pipe::pipe();
-//! _ = writer.write("hello".as_bytes()).unwrap();
+//! writer.write_all("hello".as_bytes()).unwrap();
 //! drop(writer);
 //!
 //! assert_eq!("hello".to_string(), read_to_string(reader).unwrap());
@@ -22,7 +22,7 @@
 //! let (mut writer, reader) = pipe();
 //! spawn({
 //!     move || {
-//!         _ = writer.write("hello".as_bytes()).unwrap();
+//!         writer.write_all("hello".as_bytes()).unwrap();
 //!     }
 //! });
 //!
@@ -44,7 +44,7 @@ type Data = Vec<u8>;
 /// use std::io::{read_to_string, Write};
 ///
 /// let (mut writer, reader) = io_pipe::pipe();
-/// _ = writer.write("hello".as_bytes()).unwrap();
+/// writer.write_all("hello".as_bytes()).unwrap();
 /// drop(writer);
 ///
 /// assert_eq!("hello".to_string(), read_to_string(reader).unwrap());
@@ -68,7 +68,7 @@ pub fn pipe() -> (Writer, Reader) {
 /// use std::io::Write;
 ///
 /// let (mut writer, reader) = io_pipe::pipe();
-/// _ = writer.write("hello".as_bytes()).unwrap();
+/// writer.write_all("hello".as_bytes()).unwrap();
 /// ```
 ///
 /// Write method will return an error, when reader dropped.
@@ -120,7 +120,7 @@ impl Write for Writer {
 /// use std::io::{read_to_string, Write};
 /// use io_pipe::pipe;
 /// let (mut writer, reader) = pipe();
-/// _ = writer.write("hello".as_bytes()).unwrap();
+/// writer.write_all("hello".as_bytes()).unwrap();
 /// drop(writer);
 ///
 /// assert_eq!("hello".to_string(), read_to_string(reader).unwrap());
@@ -135,6 +135,11 @@ pub struct Reader {
 
 impl BufRead for Reader {
     fn fill_buf(&mut self) -> IOResult<&[u8]> {
+        if self.buf.is_empty() {
+            if let Ok(data) = self.receiver.recv() {
+                self.buf.extend(data);
+            }
+        }
         Ok(self.buf.as_ref())
     }
 
@@ -145,10 +150,6 @@ impl BufRead for Reader {
 
 impl Read for Reader {
     fn read(&mut self, mut buf: &mut [u8]) -> IOResult<usize> {
-        if let Ok(data) = self.receiver.recv() {
-            self.buf.extend(data);
-        }
-
         let n = buf.write(self.fill_buf()?)?;
         self.consume(n);
         Ok(n)
@@ -156,7 +157,7 @@ impl Read for Reader {
 }
 #[cfg(test)]
 mod tests {
-    use std::io::{IoSlice, read_to_string, Write};
+    use std::io::{BufRead, IoSlice, read_to_string, Write};
     use std::thread::spawn;
 
     use crate::pipe;
@@ -164,8 +165,8 @@ mod tests {
     #[test]
     fn base_case() {
         let (mut writer, reader) = pipe();
-        _ = writer.write("hello ".as_bytes()).unwrap();
-        _ = writer.write("world".as_bytes()).unwrap();
+        writer.write_all("hello ".as_bytes()).unwrap();
+        writer.write_all("world".as_bytes()).unwrap();
         drop(writer);
 
         assert_eq!("hello world".to_string(), read_to_string(reader).unwrap());
@@ -190,13 +191,13 @@ mod tests {
         spawn({
             let mut writer = writer.clone();
             move || {
-                _ = writer.write("hello".as_bytes()).unwrap();
+                writer.write_all("hello".as_bytes()).unwrap();
             }
         });
         spawn({
             let mut writer = writer;
             move || {
-                _ = writer.write("world".as_bytes()).unwrap();
+                writer.write_all("world".as_bytes()).unwrap();
             }
         });
 
@@ -209,5 +210,24 @@ mod tests {
         drop(reader);
 
         assert!(writer.write("hello".as_bytes()).is_err());
+    }
+
+    #[test]
+    fn bufread_case() {
+        let (mut writer, mut reader) = pipe();
+        writer.write_all("hello\n".as_bytes()).unwrap();
+        writer.write_all("world".as_bytes()).unwrap();
+        drop(writer);
+
+        let mut str = String::new();
+        assert_ne!(reader.read_line(&mut str).unwrap(), 0);
+        assert_eq!("hello\n".to_string(), str);
+
+        let mut str = String::new();
+        assert_ne!(reader.read_line(&mut str).unwrap(), 0);
+        assert_eq!("world".to_string(), str);
+
+        let mut str = String::new();
+        assert_eq!(reader.read_line(&mut str).unwrap(), 0);
     }
 }
