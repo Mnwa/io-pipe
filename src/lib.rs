@@ -101,7 +101,7 @@ impl Write for Writer {
             .iter()
             .flat_map(|b| b.as_ref())
             .copied()
-            .collect::<Vec<_>>();
+            .collect::<Data>();
 
         let data_len = data.len();
 
