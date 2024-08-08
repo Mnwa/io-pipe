@@ -170,7 +170,17 @@ mod tests {
     use crate::pipe;
 
     #[test]
-    fn base_case() {
+    fn base_write_case() {
+        // Checking non-blocking buffer inside writer
+        let (mut writer, reader) = pipe();
+        for _ in 0..1000 {
+            writer.write_all("hello".as_bytes()).unwrap();
+        }
+        drop(reader)
+    }
+
+    #[test]
+    fn base_read_case() {
         let (mut writer, reader) = pipe();
         writer.write_all("hello ".as_bytes()).unwrap();
         writer.write_all("world".as_bytes()).unwrap();
