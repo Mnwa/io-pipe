@@ -1,6 +1,6 @@
 [package]
 name = "io-pipe"
-description = "This library add a thread safe way to create multi writers and single reader pipeline."
+description = "Dependency free and thread safe way to create multi writers and single reader pipeline."
 authors = ["Mnwa <nikhail@panfilov.tech>"]
 version = "0.1.2"
 edition = "2021"

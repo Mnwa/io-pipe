@@ -1,5 +1,5 @@
 //! # IO Pipe library
-//! This library add a thread safe way to create multi writers and single reader pipeline.
+//! Dependency free and thread safe way to create multi writers and single reader pipeline.
 //! Best way to use that library is writing bytes in few threads and reading that bytes in another single thread.
 //!
 //! Single thread usage example:
