@@ -63,6 +63,10 @@ pub fn pipe() -> (Writer, Reader) {
 
 /// ## Multi writer
 /// You can clone this writer to write bytes from different threads.
+///
+/// All write calls will be executed immediately without blocking thread.
+/// It's safe to use this writer inside async operations.
+///
 /// Example
 /// ```rust
 /// use std::io::Write;
@@ -113,7 +117,9 @@ impl Write for Writer {
 
 /// ## Single reader
 /// The reader will produce bytes until all writers not dropped.
-/// It's also implements `BufRead` trait for buffer reading
+/// Reader also implements `BufRead` trait for buffer reading.
+///
+/// Reads may **block** you thread until someone writer will not send any data.
 ///
 /// Example:
 /// ```rust
