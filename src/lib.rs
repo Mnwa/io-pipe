@@ -29,11 +29,11 @@
 //! assert_eq!("hello".len(), read_to_string(reader).unwrap().len());
 //! ```
 
-use std::io::{BufRead, IoSlice};
 use std::{
     io::{Error, ErrorKind, Read, Result as IOResult, Write},
     sync::mpsc::{channel, Receiver, Sender},
 };
+use std::io::{BufRead, IoSlice};
 
 type Data = Vec<u8>;
 
@@ -157,7 +157,7 @@ impl Read for Reader {
 }
 #[cfg(test)]
 mod tests {
-    use std::io::{read_to_string, BufRead, IoSlice, Write};
+    use std::io::{BufRead, IoSlice, read_to_string, Write};
     use std::thread::spawn;
 
     use crate::pipe;
@@ -220,14 +220,24 @@ mod tests {
         drop(writer);
 
         let mut str = String::new();
-        assert_ne!(reader.read_line(&mut str).unwrap(), 0);
+        assert_ne!(0, reader.read_line(&mut str).unwrap());
         assert_eq!("hello\n".to_string(), str);
 
         let mut str = String::new();
-        assert_ne!(reader.read_line(&mut str).unwrap(), 0);
+        assert_ne!(0, reader.read_line(&mut str).unwrap());
         assert_eq!("world".to_string(), str);
 
         let mut str = String::new();
-        assert_eq!(reader.read_line(&mut str).unwrap(), 0);
+        assert_eq!(0, reader.read_line(&mut str).unwrap());
+    }
+
+    #[test]
+    fn bufread_lines_case() {
+        let (mut writer, reader) = pipe();
+        writer.write_all("hello\n".as_bytes()).unwrap();
+        writer.write_all("world".as_bytes()).unwrap();
+        drop(writer);
+
+        assert_eq!(2, reader.lines().map(|l| assert!(l.is_ok())).count())
     }
 }
