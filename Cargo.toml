@@ -16,8 +16,15 @@ harness = false
 [features]
 default = ["sync"]
 sync = []
+async = ["futures"]
 
 [dependencies]
 
+
+[dependencies.futures]
+version = "0.3"
+optional = true
+
 [dev-dependencies]
 criterion = "0.5"
+futures-executor = "0.3"

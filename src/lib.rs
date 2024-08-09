@@ -29,8 +29,12 @@
 //! assert_eq!("hello".len(), read_to_string(reader).unwrap().len());
 //! ```
 
+#[cfg(feature = "async")]
+pub use async_pipe::{async_pipe, AsyncReader, AsyncWriter};
 #[cfg(feature = "sync")]
-pub use sync::{pipe, Reader, Writer};
+pub use sync_pipe::{pipe, Reader, Writer};
 
+#[cfg(feature = "async")]
+mod async_pipe;
 #[cfg(feature = "sync")]
-mod sync;
+mod sync_pipe;
