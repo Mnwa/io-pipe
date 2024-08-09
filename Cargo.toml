@@ -1,30 +1,32 @@
 [package]
 name = "io-pipe"
-description = "Dependency free and thread safe way to create multi writers and single reader pipeline."
-authors = ["Mnwa <nikhail@panfilov.tech>"]
 version = "0.3.2"
+authors = ["Mnwa <mikhail@panfilov.tech>"]
 edition = "2021"
-categories = ["algorithms", "data-structures", "concurrency"]
-license = "MIT"
+description = "A thread-safe library for creating multi-writer and single-reader pipelines in Rust."
 repository = "https://github.com/Mnwa/io-pipe"
 documentation = "https://docs.rs/io-pipe/latest/io_pipe/"
+readme = "README.md"
+license = "MIT"
+keywords = ["io", "pipe", "multi-writer", "single-reader", "thread-safe"]
+categories = ["algorithms", "data-structures", "concurrency", "asynchronous"]
+
+[features]
+default = ["sync"]
+sync = []
+async = ["dep:futures"]
+
+[dependencies]
+futures = { version = "0.3", optional = true }
+
+[dev-dependencies]
+criterion = "0.5"
+futures-executor = "0.3"
 
 [[bench]]
 name = "io_pipe"
 harness = false
 
-[features]
-default = ["sync"]
-sync = []
-async = ["futures"]
-
-[dependencies]
-
-
-[dependencies.futures]
-version = "0.3"
-optional = true
-
-[dev-dependencies]
-criterion = "0.5"
-futures-executor = "0.3"
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

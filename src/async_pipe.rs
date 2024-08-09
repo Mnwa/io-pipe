@@ -8,10 +8,26 @@ use futures::{Sink, Stream};
 
 type Data = Vec<u8>;
 
-/// ## Create multi writer and single reader objects
+/// Creates a pair of asynchronous writer and reader objects.
 ///
-/// Example
+/// This function returns a tuple containing an `AsyncWriter` and an `AsyncReader`.
+/// The `AsyncWriter` can be used to write data, which can then be read from the `AsyncReader`.
+///
+/// # Arguments
+///
+/// * `buffer_size` - The size of the internal buffer used for communication between the writer and reader.
+///
+/// # Returns
+///
+/// A tuple containing `(AsyncWriter, AsyncReader)`.
+///
+/// # Example
+///
 /// ```rust
+/// use io_pipe::async_pipe;
+///
+/// let (writer, reader) = async_pipe(1000);
+/// // Use writer to write data and reader to read data asynchronously
 /// ```
 pub fn async_pipe(buffer_size: usize) -> (AsyncWriter, AsyncReader) {
     let (sender, receiver) = channel(buffer_size);
@@ -25,6 +41,9 @@ pub fn async_pipe(buffer_size: usize) -> (AsyncWriter, AsyncReader) {
     )
 }
 
+/// An asynchronous writer that implements `AsyncWrite`.
+///
+/// This struct allows writing data asynchronously, which can be read from a corresponding `AsyncReader`.
 #[derive(Clone, Debug)]
 pub struct AsyncWriter {
     sender: Sender<Data>,
@@ -82,6 +101,9 @@ impl AsyncWrite for AsyncWriter {
     }
 }
 
+/// An asynchronous reader that implements `AsyncRead` and `AsyncBufRead`.
+///
+/// This struct allows reading data asynchronously that was written to a corresponding `AsyncWriter`.
 #[derive(Debug)]
 pub struct AsyncReader {
     receiver: Receiver<Data>,

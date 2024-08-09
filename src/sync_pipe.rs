@@ -6,13 +6,22 @@ use std::{
 
 type Data = Vec<u8>;
 
-/// ## Create multi writer and single reader objects
+/// Creates a pair of synchronous writer and reader objects.
 ///
-/// Example
+/// This function returns a tuple containing a `Writer` and a `Reader`.
+/// The `Writer` can be used to write data, which can then be read from the `Reader`.
+///
+/// # Returns
+///
+/// A tuple containing `(Writer, Reader)`.
+///
+/// # Example
+///
 /// ```rust
 /// use std::io::{read_to_string, Write};
+/// use io_pipe::pipe;
 ///
-/// let (mut writer, reader) = io_pipe::pipe();
+/// let (mut writer, reader) = pipe();
 /// writer.write_all("hello".as_bytes()).unwrap();
 /// drop(writer);
 ///
@@ -30,27 +39,25 @@ pub fn pipe() -> (Writer, Reader) {
     )
 }
 
-/// ## Multi writer
-/// You can clone this writer to write bytes from different threads.
+/// A synchronous writer that implements `Write`.
 ///
-/// All write calls will be executed immediately without blocking thread.
-/// It's safe to use this writer inside async operations.
+/// This struct allows writing data synchronously, which can be read from a corresponding `Reader`.
+/// Multiple `Writer` instances can be created by cloning, allowing writes from different threads.
 ///
-/// Example
+/// # Notes
+///
+/// - All write calls are executed immediately without blocking the thread.
+/// - It's safe to use this writer inside async operations.
+/// - Write method will return an error when the reader is dropped.
+///
+/// # Example
+///
 /// ```rust
 /// use std::io::Write;
+/// use io_pipe::pipe;
 ///
-/// let (mut writer, reader) = io_pipe::pipe();
+/// let (mut writer, reader) = pipe();
 /// writer.write_all("hello".as_bytes()).unwrap();
-/// ```
-///
-/// Write method will return an error, when reader dropped.
-/// ```rust
-/// use std::io::Write;
-///
-/// let (mut writer, reader) = io_pipe::pipe();
-/// drop(reader);
-/// assert!(writer.write("hello".as_bytes()).is_err());
 /// ```
 #[derive(Clone, Debug)]
 pub struct Writer {
@@ -85,24 +92,29 @@ impl Write for Writer {
     }
 }
 
-/// ## Single reader
-/// The reader will produce bytes until all writers not dropped.
-/// Reader also implements `BufRead` trait for buffer reading.
+/// A synchronous reader that implements `Read` and `BufRead`.
 ///
-/// Reads may **block** you thread until someone writer will not send any data.
+/// This struct allows reading data synchronously that was written to a corresponding `Writer`.
+/// The reader will produce bytes until all writers are dropped.
 ///
-/// Example:
+/// # Notes
+///
+/// - Reads may block the thread until a writer sends data.
+/// - Implements the `BufRead` trait for buffered reading.
+/// - Be cautious of potential deadlocks when reading from the reader before dropping the writer in a single thread.
+///
+/// # Example
+///
 /// ```rust
 /// use std::io::{read_to_string, Write};
 /// use io_pipe::pipe;
+///
 /// let (mut writer, reader) = pipe();
 /// writer.write_all("hello".as_bytes()).unwrap();
 /// drop(writer);
 ///
 /// assert_eq!("hello".to_string(), read_to_string(reader).unwrap());
 /// ```
-///
-/// Important: easies case to get deadlock is read from reader when writer is not dropped in single thread
 #[derive(Debug)]
 pub struct Reader {
     receiver: Receiver<Data>,
