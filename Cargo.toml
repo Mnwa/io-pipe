@@ -13,6 +13,10 @@ documentation = "https://docs.rs/io-pipe/latest/io_pipe/"
 name = "io_pipe"
 harness = false
 
+[features]
+default = ["sync"]
+sync = []
+
 [dependencies]
 
 [dev-dependencies]
