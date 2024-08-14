@@ -1,8 +1,7 @@
 use std::io::{BufRead, IoSlice};
-use std::{
-    io::{Error, ErrorKind, Read, Result as IOResult, Write},
-    sync::mpsc::{channel, Receiver, Sender},
-};
+use std::io::{Error, ErrorKind, Read, Result as IOResult, Write};
+
+use loole::{Receiver, Sender, unbounded};
 
 type Data = Vec<u8>;
 
@@ -28,7 +27,7 @@ type Data = Vec<u8>;
 /// assert_eq!("hello".to_string(), read_to_string(reader).unwrap());
 /// ```
 pub fn pipe() -> (Writer, Reader) {
-    let (sender, receiver) = channel();
+    let (sender, receiver) = unbounded();
 
     (
         Writer { sender },
@@ -61,7 +60,7 @@ pub fn pipe() -> (Writer, Reader) {
 /// ```
 #[derive(Clone, Debug)]
 pub struct Writer {
-    sender: Sender<Data>,
+    pub(crate) sender: Sender<Data>,
 }
 
 impl Write for Writer {
@@ -117,8 +116,8 @@ impl Write for Writer {
 /// ```
 #[derive(Debug)]
 pub struct Reader {
-    receiver: Receiver<Data>,
-    buf: Data,
+    pub(crate) receiver: Receiver<Data>,
+    pub(crate) buf: Data,
 }
 
 impl BufRead for Reader {
@@ -145,7 +144,7 @@ impl Read for Reader {
 }
 #[cfg(test)]
 mod tests {
-    use std::io::{read_to_string, BufRead, IoSlice, Write};
+    use std::io::{BufRead, IoSlice, read_to_string, Write};
     use std::thread::spawn;
 
     #[test]

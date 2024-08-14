@@ -1,10 +1,12 @@
+use std::future::Future;
 use std::io::{Error, ErrorKind, IoSlice, Write};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use futures::channel::mpsc::{channel, Receiver, Sender};
-use futures::io::{AsyncBufRead, AsyncRead, AsyncWrite};
-use futures::{Sink, Stream};
+use futures_io::{AsyncBufRead, AsyncRead, AsyncWrite};
+use loole::{Receiver, RecvFuture, Sender, unbounded};
+
+use crate::{Reader, Writer};
 
 type Data = Vec<u8>;
 
@@ -26,15 +28,87 @@ type Data = Vec<u8>;
 /// ```rust
 /// use io_pipe::async_pipe;
 ///
-/// let (writer, reader) = async_pipe(1000);
+/// let (writer, reader) = async_pipe();
 /// // Use writer to write data and reader to read data asynchronously
 /// ```
-pub fn async_pipe(buffer_size: usize) -> (AsyncWriter, AsyncReader) {
-    let (sender, receiver) = channel(buffer_size);
+pub fn async_pipe() -> (AsyncWriter, AsyncReader) {
+    let (sender, receiver) = unbounded();
 
     (
         AsyncWriter { sender },
         AsyncReader {
+            receiver,
+            buf: Data::new(),
+            reading: None,
+        },
+    )
+}
+
+/// Creates a pair of synchronous writer and asynchronous reader objects.
+///
+/// This function returns a tuple containing an `Writer` and an `AsyncReader`.
+/// The `Writer` can be used to write data, which can then be read from the `AsyncReader`.
+///
+/// # Arguments
+///
+/// * `buffer_size` - The size of the internal buffer used for communication between the writer and reader.
+///
+/// # Returns
+///
+/// A tuple containing `(Writer, AsyncReader)`.
+///
+/// # Example
+///
+/// ```rust
+/// use io_pipe::async_reader_pipe;
+///
+/// let (writer, reader) = async_reader_pipe();
+/// // Use writer to write data synchronously and reader to read data asynchronously
+/// ```
+#[cfg(feature = "async")]
+#[cfg(feature = "sync")]
+pub fn async_reader_pipe() -> (Writer, AsyncReader) {
+    let (sender, receiver) = unbounded();
+
+    (
+        Writer { sender },
+        AsyncReader {
+            receiver,
+            buf: Data::new(),
+            reading: None,
+        },
+    )
+}
+
+/// Creates a pair of synchronous writer and asynchronous reader objects.
+///
+/// This function returns a tuple containing an `Writer` and an `AsyncReader`.
+/// The `Writer` can be used to write data, which can then be read from the `AsyncReader`.
+///
+/// # Arguments
+///
+/// * `buffer_size` - The size of the internal buffer used for communication between the writer and reader.
+///
+/// # Returns
+///
+/// A tuple containing `(Writer, AsyncReader)`.
+///
+/// # Example
+///
+/// ```rust
+/// use io_pipe::async_writer_pipe;
+///
+/// let (writer, reader) = async_writer_pipe();
+/// // Use writer to write data synchronously and reader to read data asynchronously
+/// ```
+#[cfg(feature = "async")]
+#[cfg(feature = "sync")]
+pub fn async_writer_pipe() -> (AsyncWriter, Reader) {
+    let (sender, receiver) = unbounded();
+
+    (
+        AsyncWriter { sender },
+        Reader {
             receiver,
             buf: Data::new(),
         },
@@ -51,22 +125,19 @@ pub struct AsyncWriter {
 
 impl AsyncWrite for AsyncWriter {
     fn poll_write(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<std::io::Result<usize>> {
-        if Pin::new(&mut self.sender).poll_ready(cx).is_pending() {
-            return Poll::Pending;
-        }
-
-        match self.sender.start_send(buf.to_vec()) {
-            Ok(_) => Poll::Ready(Ok(buf.len())),
-            Err(e) => Poll::Ready(Err(Error::new(ErrorKind::WriteZero, e))),
+        match Pin::new(&mut self.sender.send_async(buf.to_vec())).poll(cx) {
+            Poll::Ready(Ok(_)) => Poll::Ready(Ok(buf.len())),
+            Poll::Ready(Err(e)) => Poll::Ready(Err(Error::new(ErrorKind::WriteZero, e))),
+            Poll::Pending => Poll::Pending,
         }
     }
 
     fn poll_write_vectored(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         bufs: &[IoSlice<'_>],
     ) -> Poll<std::io::Result<usize>> {
@@ -78,13 +149,10 @@ impl AsyncWrite for AsyncWriter {
 
         let data_len = data.len();
 
-        if Pin::new(&mut self.sender).poll_ready(cx).is_pending() {
-            return Poll::Pending;
-        }
-
-        match self.sender.start_send(data) {
-            Ok(_) => Poll::Ready(Ok(data_len)),
-            Err(e) => Poll::Ready(Err(Error::new(ErrorKind::WriteZero, e))),
+        match Pin::new(&mut self.sender.send_async(data)).poll(cx) {
+            Poll::Ready(Ok(_)) => Poll::Ready(Ok(data_len)),
+            Poll::Ready(Err(e)) => Poll::Ready(Err(Error::new(ErrorKind::WriteZero, e))),
+            Poll::Pending => Poll::Pending,
         }
     }
 
@@ -92,12 +160,9 @@ impl AsyncWrite for AsyncWriter {
         Poll::Ready(Ok(()))
     }
 
-    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        match Pin::new(&mut self.sender).poll_close(cx) {
-            Poll::Ready(Ok(_)) => Poll::Ready(Ok(())),
-            Poll::Ready(Err(e)) => Poll::Ready(Err(Error::new(ErrorKind::BrokenPipe, e))),
-            Poll::Pending => Poll::Pending,
-        }
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        self.sender.close();
+        Poll::Ready(Ok(()))
     }
 }
 
@@ -108,6 +173,7 @@ impl AsyncWrite for AsyncWriter {
 pub struct AsyncReader {
     receiver: Receiver<Data>,
     buf: Data,
+    reading: Option<RecvFuture<Data>>,
 }
 
 impl AsyncBufRead for AsyncReader {
@@ -116,11 +182,15 @@ impl AsyncBufRead for AsyncReader {
         cx: &mut Context<'_>,
     ) -> Poll<std::io::Result<&[u8]>> {
         if self.buf.is_empty() {
-            match Pin::new(&mut self.receiver).poll_next(cx) {
-                Poll::Ready(Some(data)) => {
+            if self.reading.is_none() {
+                self.reading = Some(self.receiver.recv_async())
+            }
+            match Pin::new(self.reading.as_mut().unwrap()).poll(cx) {
+                Poll::Ready(Ok(data)) => {
                     self.buf.extend(data);
+                    self.reading = None
                 }
-                Poll::Ready(None) => {}
+                Poll::Ready(Err(_)) => self.reading = None,
                 Poll::Pending => return Poll::Pending,
             }
         }
@@ -156,14 +226,15 @@ impl AsyncRead for AsyncReader {
 #[cfg(test)]
 mod tests {
     use std::io::IoSlice;
+    use std::thread::spawn;
 
-    use futures::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, StreamExt};
+    use futures::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, executor::block_on, StreamExt};
 
     #[test]
     fn base_write_case() {
-        futures_executor::block_on(async {
+        block_on(async {
             // Checking non-blocking buffer inside writer
-            let (mut writer, reader) = crate::async_pipe(1000);
+            let (mut writer, reader) = crate::async_pipe();
             for _ in 0..1000 {
                 writer.write_all("hello".as_bytes()).await.unwrap();
             }
@@ -173,8 +244,8 @@ mod tests {
 
     #[test]
     fn base_read_case() {
-        futures_executor::block_on(async {
-            let (mut writer, mut reader) = crate::async_pipe(2);
+        block_on(async {
+            let (mut writer, mut reader) = crate::async_pipe();
 
             writer.write_all("hello ".as_bytes()).await.unwrap();
             writer.write_all("world".as_bytes()).await.unwrap();
@@ -189,8 +260,8 @@ mod tests {
 
     #[test]
     fn base_vectored_case() {
-        futures_executor::block_on(async {
-            let (mut writer, mut reader) = crate::async_pipe(2);
+        block_on(async {
+            let (mut writer, mut reader) = crate::async_pipe();
             _ = writer
                 .write_vectored(&[
                     IoSlice::new("hello ".as_bytes()),
@@ -209,8 +280,8 @@ mod tests {
 
     #[test]
     fn thread_case() {
-        futures_executor::block_on(async {
-            let (writer, mut reader) = crate::async_pipe(2);
+        block_on(async {
+            let (writer, mut reader) = crate::async_pipe();
             futures::join!(
                 {
                     let mut writer = writer.clone();
@@ -235,8 +306,8 @@ mod tests {
 
     #[test]
     fn writer_err_case() {
-        futures_executor::block_on(async {
-            let (mut writer, reader) = crate::async_pipe(1);
+        block_on(async {
+            let (mut writer, reader) = crate::async_pipe();
             drop(reader);
 
             assert!(writer.write("hello".as_bytes()).await.is_err());
@@ -245,8 +316,8 @@ mod tests {
 
     #[test]
     fn bufread_case() {
-        futures_executor::block_on(async {
-            let (mut writer, mut reader) = crate::async_pipe(2);
+        block_on(async {
+            let (mut writer, mut reader) = crate::async_pipe();
             writer.write_all("hello\n".as_bytes()).await.unwrap();
             writer.write_all("world".as_bytes()).await.unwrap();
             drop(writer);
@@ -266,13 +337,64 @@ mod tests {
 
     #[test]
     fn bufread_lines_case() {
-        futures_executor::block_on(async {
-            let (mut writer, reader) = crate::async_pipe(2);
+        block_on(async {
+            let (mut writer, reader) = crate::async_pipe();
             writer.write_all("hello\n".as_bytes()).await.unwrap();
             writer.write_all("world".as_bytes()).await.unwrap();
             drop(writer);
 
             assert_eq!(2, reader.lines().map(|l| assert!(l.is_ok())).count().await)
         });
+    }
+
+    #[test]
+    fn thread_writer_case() {
+        use std::io::Write;
+
+        let (writer, mut reader) = crate::async_reader_pipe();
+        spawn({
+            let mut writer = writer.clone();
+            move || {
+                writer.write_all("hello".as_bytes()).unwrap();
+            }
+        });
+        spawn({
+            let mut writer = writer;
+            move || {
+                writer.write_all("world".as_bytes()).unwrap();
+            }
+        });
+
+        block_on(async {
+            let mut str = String::new();
+            reader.read_to_string(&mut str).await.unwrap();
+
+            assert_eq!("helloworld".len(), str.len());
+        })
+    }
+
+    #[test]
+    fn thread_reader_case() {
+        use std::io::Read;
+
+        let (mut writer, mut reader) = crate::async_writer_pipe();
+        spawn({
+            let mut writer = writer.clone();
+            move || {
+                block_on(async {
+                    writer.write_all("hello".as_bytes()).await.unwrap();
+                })
+            }
+        });
+        spawn(move || {
+            block_on(async {
+                writer.write_all("hello".as_bytes()).await.unwrap();
+            })
+        });
+
+        let mut str = String::new();
+        reader.read_to_string(&mut str).unwrap();
+
+        assert_eq!("helloworld".len(), str.len());
     }
 }

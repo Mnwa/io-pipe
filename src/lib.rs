@@ -86,6 +86,9 @@
 
 #[cfg(feature = "async")]
 pub use async_pipe::{async_pipe, AsyncReader, AsyncWriter};
+#[cfg(feature = "async")]
+#[cfg(feature = "sync")]
+pub use async_pipe::{async_reader_pipe, async_writer_pipe};
 #[cfg(feature = "sync")]
 pub use sync_pipe::{pipe, Reader, Writer};
 

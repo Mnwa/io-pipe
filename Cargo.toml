@@ -1,6 +1,6 @@
 [package]
 name = "io-pipe"
-version = "0.4.0"
+version = "0.5.0"
 authors = ["Mnwa <mikhail@panfilov.tech>"]
 edition = "2021"
 description = "A thread-safe library for creating multi-writer and single-reader pipelines in Rust."
@@ -14,14 +14,15 @@ categories = ["algorithms", "data-structures", "concurrency", "asynchronous"]
 [features]
 default = ["sync"]
 sync = []
-async = ["dep:futures"]
+async = ["dep:futures-io"]
 
 [dependencies]
-futures = { version = "0.3", optional = true }
+loole = { version = "0.3" }
+futures-io = { version = "0.3", optional = true }
 
 [dev-dependencies]
 criterion = "0.5"
-futures-executor = "0.3"
+futures = "0.3"
 
 [[bench]]
 name = "io_pipe"
