@@ -1,10 +1,11 @@
+use std::collections::VecDeque;
 use std::future::Future;
 use std::io::{Error, ErrorKind, IoSlice, Write};
 use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::task::{Context, Poll, Waker};
 
 use futures_io::{AsyncBufRead, AsyncRead, AsyncWrite};
-use loole::{Receiver, RecvFuture, Sender, unbounded};
+use loole::{Receiver, RecvFuture, Sender, TrySendError, unbounded};
 
 use crate::{Reader, Writer};
 
@@ -35,7 +36,10 @@ pub fn async_pipe() -> (AsyncWriter, AsyncReader) {
     let (sender, receiver) = unbounded();
 
     (
-        AsyncWriter { sender },
+        AsyncWriter {
+            sender,
+            wakers: VecDeque::new(),
+        },
         AsyncReader {
             receiver,
             buf: Data::new(),
@@ -107,7 +111,10 @@ pub fn async_writer_pipe() -> (AsyncWriter, Reader) {
     let (sender, receiver) = unbounded();
 
     (
-        AsyncWriter { sender },
+        AsyncWriter {
+            sender,
+            wakers: VecDeque::new(),
+        },
         Reader {
             receiver,
             buf: Data::new(),
@@ -118,26 +125,49 @@ pub fn async_writer_pipe() -> (AsyncWriter, Reader) {
 /// An asynchronous writer that implements `AsyncWrite`.
 ///
 /// This struct allows writing data asynchronously, which can be read from a corresponding `AsyncReader`.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct AsyncWriter {
     sender: Sender<Data>,
+    wakers: VecDeque<Waker>,
+}
+
+impl Clone for AsyncWriter {
+    fn clone(&self) -> Self {
+        Self {
+            sender: self.sender.clone(),
+            wakers: VecDeque::new(),
+        }
+    }
 }
 
 impl AsyncWrite for AsyncWriter {
     fn poll_write(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<std::io::Result<usize>> {
-        match Pin::new(&mut self.sender.send_async(buf.to_vec())).poll(cx) {
-            Poll::Ready(Ok(_)) => Poll::Ready(Ok(buf.len())),
-            Poll::Ready(Err(e)) => Poll::Ready(Err(Error::new(ErrorKind::WriteZero, e))),
-            Poll::Pending => Poll::Pending,
+        match self.sender.try_send(buf.to_vec()) {
+            Ok(_) => {
+                if let Some(waker) = self.wakers.pop_front() {
+                    waker.wake()
+                }
+                Poll::Ready(Ok(buf.len()))
+            }
+            Err(TrySendError::Full(_)) => {
+                self.wakers.push_back(cx.waker().clone());
+                Poll::Pending
+            }
+            Err(e @ TrySendError::Disconnected(_)) => {
+                if let Some(waker) = self.wakers.pop_front() {
+                    waker.wake()
+                }
+                Poll::Ready(Err(Error::new(ErrorKind::WriteZero, e)))
+            }
         }
     }
 
     fn poll_write_vectored(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         bufs: &[IoSlice<'_>],
     ) -> Poll<std::io::Result<usize>> {
@@ -149,10 +179,23 @@ impl AsyncWrite for AsyncWriter {
 
         let data_len = data.len();
 
-        match Pin::new(&mut self.sender.send_async(data)).poll(cx) {
-            Poll::Ready(Ok(_)) => Poll::Ready(Ok(data_len)),
-            Poll::Ready(Err(e)) => Poll::Ready(Err(Error::new(ErrorKind::WriteZero, e))),
-            Poll::Pending => Poll::Pending,
+        match self.sender.try_send(data.to_vec()) {
+            Ok(_) => {
+                if let Some(waker) = self.wakers.pop_front() {
+                    waker.wake()
+                }
+                Poll::Ready(Ok(data_len))
+            }
+            Err(TrySendError::Full(_)) => {
+                self.wakers.push_back(cx.waker().clone());
+                Poll::Pending
+            }
+            Err(e @ TrySendError::Disconnected(_)) => {
+                if let Some(waker) = self.wakers.pop_front() {
+                    waker.wake()
+                }
+                Poll::Ready(Err(Error::new(ErrorKind::WriteZero, e)))
+            }
         }
     }
 
@@ -282,25 +325,22 @@ mod tests {
     fn thread_case() {
         block_on(async {
             let (writer, mut reader) = crate::async_pipe();
-            futures::join!(
-                {
+            futures::stream::iter(0..1000)
+                .map(|_| {
                     let mut writer = writer.clone();
                     async move {
                         writer.write_all("hello".as_bytes()).await.unwrap();
                     }
-                },
-                {
-                    let mut writer = writer;
-                    async move {
-                        writer.write_all("world".as_bytes()).await.unwrap();
-                    }
-                }
-            );
+                })
+                .buffer_unordered(1000)
+                .collect::<Vec<()>>()
+                .await;
+            drop(writer);
 
             let mut str = String::new();
             reader.read_to_string(&mut str).await.unwrap();
 
-            assert_eq!("helloworld".len(), str.len());
+            assert_eq!("hello".len() * 1000, str.len());
         });
     }
 
@@ -377,24 +417,20 @@ mod tests {
     fn thread_reader_case() {
         use std::io::Read;
 
-        let (mut writer, mut reader) = crate::async_writer_pipe();
-        spawn({
+        let (writer, mut reader) = crate::async_writer_pipe();
+        for _ in 0..1000 {
             let mut writer = writer.clone();
-            move || {
+            spawn(move || {
                 block_on(async {
                     writer.write_all("hello".as_bytes()).await.unwrap();
                 })
-            }
-        });
-        spawn(move || {
-            block_on(async {
-                writer.write_all("hello".as_bytes()).await.unwrap();
-            })
-        });
+            });
+        }
+        drop(writer);
 
         let mut str = String::new();
         reader.read_to_string(&mut str).unwrap();
 
-        assert_eq!("helloworld".len(), str.len());
+        assert_eq!("hello".len() * 1000, str.len());
     }
 }

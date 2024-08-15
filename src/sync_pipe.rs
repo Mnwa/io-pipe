@@ -183,20 +183,15 @@ mod tests {
     #[test]
     fn thread_case() {
         let (writer, reader) = crate::pipe();
-        spawn({
+        for _ in 0..1000 {
             let mut writer = writer.clone();
-            move || {
+            spawn(move || {
                 writer.write_all("hello".as_bytes()).unwrap();
-            }
-        });
-        spawn({
-            let mut writer = writer;
-            move || {
-                writer.write_all("world".as_bytes()).unwrap();
-            }
-        });
+            });
+        }
+        drop(writer);
 
-        assert_eq!("helloworld".len(), read_to_string(reader).unwrap().len());
+        assert_eq!("hello".len() * 1000, read_to_string(reader).unwrap().len());
     }
 
     #[test]
