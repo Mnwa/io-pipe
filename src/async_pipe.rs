@@ -5,7 +5,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll, Waker};
 
 use futures_io::{AsyncBufRead, AsyncRead, AsyncWrite};
-use loole::{Receiver, RecvFuture, Sender, TrySendError, unbounded};
+use loole::{unbounded, Receiver, RecvFuture, Sender, TrySendError};
 
 use crate::{Reader, Writer};
 
@@ -271,7 +271,7 @@ mod tests {
     use std::io::IoSlice;
     use std::thread::spawn;
 
-    use futures::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, executor::block_on, StreamExt};
+    use futures::{executor::block_on, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, StreamExt};
 
     #[test]
     fn base_write_case() {

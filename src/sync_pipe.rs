@@ -1,7 +1,7 @@
 use std::io::{BufRead, IoSlice};
 use std::io::{Error, ErrorKind, Read, Result as IOResult, Write};
 
-use loole::{Receiver, Sender, unbounded};
+use loole::{unbounded, Receiver, Sender};
 
 type Data = Vec<u8>;
 
@@ -144,7 +144,7 @@ impl Read for Reader {
 }
 #[cfg(test)]
 mod tests {
-    use std::io::{BufRead, IoSlice, read_to_string, Write};
+    use std::io::{read_to_string, BufRead, IoSlice, Write};
     use std::thread::spawn;
 
     #[test]
