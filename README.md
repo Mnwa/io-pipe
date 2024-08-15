@@ -13,7 +13,6 @@ ideal for scenarios where you need to write bytes from multiple threads and read
 - Thread-safe communication between writers and readers
 - Support for both synchronous and asynchronous operations (via feature flags)
 - Easy-to-use API for creating pipes
-- Zero dependencies (for core functionality)
 
 ## Installation
 
@@ -76,7 +75,7 @@ use futures::executor::block_on;
 
 fn main() {
     block_on(async {
-        let (mut writer, mut reader) = async_pipe(1024);
+        let (mut writer, mut reader) = async_pipe();
 
         writer.write_all(b"hello").await.unwrap();
         drop(writer);
