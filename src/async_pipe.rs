@@ -5,7 +5,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll, Waker};
 
 use futures_io::{AsyncBufRead, AsyncRead, AsyncWrite};
-use loole::{Receiver, RecvFuture, Sender, TrySendError, unbounded};
+use loole::{unbounded, Receiver, RecvFuture, Sender, TrySendError};
 
 use crate::{Reader, Writer};
 
@@ -271,7 +271,9 @@ mod tests {
     use std::io::IoSlice;
     use std::thread::spawn;
 
-    use futures::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, executor::block_on, StreamExt};
+    use futures::{
+        executor::block_on, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, StreamExt, TryStreamExt,
+    };
 
     #[test]
     fn base_write_case() {
@@ -325,20 +327,22 @@ mod tests {
     fn thread_case() {
         block_on(async {
             let (writer, mut reader) = crate::async_pipe();
-            futures::stream::iter(0..1000)
-                .map(|_| {
-                    let mut writer = writer.clone();
-                    async move {
-                        writer.write_all("hello".as_bytes()).await.unwrap();
-                    }
-                })
-                .buffer_unordered(1000)
-                .collect::<Vec<()>>()
-                .await;
+            let writers = (0..1000).map(|_| writer.clone()).collect::<Vec<_>>();
+            let writers_len = writers.len();
             drop(writer);
+            let write_fut = futures::stream::iter(writers)
+                .map(|mut writer| async move { writer.write_all("hello".as_bytes()).await })
+                .buffer_unordered(writers_len)
+                .try_collect::<Vec<()>>();
 
             let mut str = String::new();
-            reader.read_to_string(&mut str).await.unwrap();
+            let read_fut = reader.read_to_string(&mut str);
+            futures::join!(
+                async {
+                    write_fut.await.unwrap();
+                },
+                async { read_fut.await.unwrap() }
+            );
 
             assert_eq!("hello".len() * 1000, str.len());
         });
