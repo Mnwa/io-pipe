@@ -88,6 +88,70 @@ fn main() {
 }
 ```
 
+### Sync To Asynchronous API
+
+```rust
+use io_pipe::async_reader_pipe;
+use futures::io::{AsyncWriteExt, AsyncReadExt};
+use futures::executor::block_on;
+
+fn main() {
+    block_on(async {
+        let (mut writer, mut reader) = async_pipe();
+
+        writer.write_all(b"hello").await.unwrap();
+        drop(writer);
+
+        let mut buffer = String::new();
+        reader.read_to_string(&mut buffer).await.unwrap();
+        assert_eq!("hello", buffer);
+    });
+}
+```
+
+#### Sync to Async Example
+
+```rust
+use io_pipe::async_reader_pipe;
+use std::io::Write;
+use futures::io::AsyncReadExt;
+use futures::executor::block_on;
+
+fn main() {
+    let (mut writer, mut reader) = async_reader_pipe();
+    writer.write_all(b"hello").unwrap();
+    drop(writer);
+
+    block_on(async {
+        let mut buffer = String::new();
+        reader.read_to_string(&mut buffer).await.unwrap();
+        assert_eq!("hello", buffer);
+    })
+}
+```
+
+#### Async to Sync Example
+
+```rust
+use io_pipe::async_writer_pipe;
+use std::io::Read;
+use futures::io::AsyncWriteExt;
+use futures::executor::block_on;
+
+fn main() {
+    let (mut writer, mut reader) = async_writer_pipe();
+
+    block_on(async {
+        writer.write_all(b"hello").await.unwrap();
+        drop(writer);
+    });
+
+    let mut buffer = String::new();
+    reader.read_to_string(&mut buffer).unwrap();
+    assert_eq!("hello", buffer);
+}
+```
+
 ## Documentation
 
 For detailed API documentation, please refer to [docs.rs](https://docs.rs/io-pipe/latest/io_pipe/).
