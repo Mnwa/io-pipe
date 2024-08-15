@@ -1,9 +1,9 @@
 # IO Pipe Library
 
-![Crates.io Version](https://img.shields.io/crates/v/io-pipe)
-![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/Mnwa/io-pipe/rust.yml)
-![docs.rs](https://img.shields.io/docsrs/io-pipe)
-![Crates.io License](https://img.shields.io/crates/l/io-pipe)
+[![Crates.io Version](https://img.shields.io/crates/v/io-pipe)](https://crates.io/crates/io-pipe)
+[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/Mnwa/io-pipe/rust.yml)](https://github.com/Mnwa/io-pipe/actions/workflows/rust.yml?query=branch%3Amaster)
+[![docs.rs](https://img.shields.io/docsrs/io-pipe)](https://docs.rs/io-pipe/latest/io_pipe/)
+[![Crates.io License](https://img.shields.io/crates/l/io-pipe)](LICENSE)
 
 IO Pipe is a thread-safe Rust library for creating multi-writer and single-reader pipelines. It's
 ideal for scenarios where you need to write bytes from multiple threads and read them from a single thread.
