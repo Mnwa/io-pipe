@@ -94,9 +94,9 @@ impl Write for Writer {
     }
 
     fn write_all(&mut self, buf: &[u8]) -> IOResult<()> {
-        let n = self.state.write_all(buf)?;
+        self.state.write_all(buf)?;
         match self.sender.send(()) {
-            Ok(_) => Ok(n),
+            Ok(_) => Ok(()),
             Err(e) => Err(Error::new(ErrorKind::WriteZero, e)),
         }
     }
