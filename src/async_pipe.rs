@@ -5,7 +5,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll, Waker};
 
 use futures_io::{AsyncBufRead, AsyncRead, AsyncWrite};
-use loole::{unbounded, Receiver, RecvFuture, Sender, TrySendError};
+use loole::{Receiver, RecvFuture, Sender, TrySendError, unbounded};
 
 use crate::{Reader, Writer};
 
@@ -271,7 +271,7 @@ mod tests {
     use std::io::IoSlice;
     use std::thread::spawn;
 
-    use futures::{executor::block_on, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, StreamExt};
+    use futures::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, executor::block_on, StreamExt};
 
     #[test]
     fn base_write_case() {
@@ -392,24 +392,19 @@ mod tests {
         use std::io::Write;
 
         let (writer, mut reader) = crate::async_reader_pipe();
-        spawn({
+        for _ in 0..1000 {
             let mut writer = writer.clone();
-            move || {
+            spawn(move || {
                 writer.write_all("hello".as_bytes()).unwrap();
-            }
-        });
-        spawn({
-            let mut writer = writer;
-            move || {
-                writer.write_all("world".as_bytes()).unwrap();
-            }
-        });
+            });
+        }
+        drop(writer);
 
         block_on(async {
             let mut str = String::new();
             reader.read_to_string(&mut str).await.unwrap();
 
-            assert_eq!("helloworld".len(), str.len());
+            assert_eq!("hello".len() * 1000, str.len());
         })
     }
 
