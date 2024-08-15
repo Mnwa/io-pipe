@@ -24,9 +24,10 @@ impl Write for SharedState {
 
     fn write_vectored(&mut self, bufs: &[IoSlice<'_>]) -> std::io::Result<usize> {
         let mut guard = self.0.lock().unwrap();
-        let n = guard.buf.len();
+        let n = bufs.iter().map(|b| b.len()).sum::<usize>();
+        guard.buf.reserve(n);
         guard.buf.extend(bufs.iter().flat_map(|b| b.as_ref()));
-        Ok(guard.buf.len() - n)
+        Ok(n)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
