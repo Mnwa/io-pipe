@@ -1,9 +1,11 @@
+use std::collections::VecDeque;
+use std::fmt::Arguments;
 use std::io::{BufRead, IoSlice};
 use std::io::{Error, ErrorKind, Read, Result as IOResult, Write};
 
 use loole::{unbounded, Receiver, Sender};
 
-type Data = Vec<u8>;
+use crate::state::SharedState;
 
 /// Creates a pair of synchronous writer and reader objects.
 ///
@@ -29,11 +31,17 @@ type Data = Vec<u8>;
 pub fn pipe() -> (Writer, Reader) {
     let (sender, receiver) = unbounded();
 
+    let state = SharedState::default();
+
     (
-        Writer { sender },
+        Writer {
+            sender,
+            state: state.clone(),
+        },
         Reader {
             receiver,
-            buf: Data::new(),
+            state,
+            buf: VecDeque::new(),
         },
     )
 }
@@ -60,34 +68,45 @@ pub fn pipe() -> (Writer, Reader) {
 /// ```
 #[derive(Clone, Debug)]
 pub struct Writer {
-    pub(crate) sender: Sender<Data>,
+    pub(crate) sender: Sender<()>,
+    pub(crate) state: SharedState,
 }
 
 impl Write for Writer {
     fn write(&mut self, buf: &[u8]) -> IOResult<usize> {
-        match self.sender.send(buf.to_vec()) {
-            Ok(_) => Ok(buf.len()),
+        let n = self.state.write(buf)?;
+        match self.sender.send(()) {
+            Ok(_) => Ok(n),
             Err(e) => Err(Error::new(ErrorKind::WriteZero, e)),
         }
     }
 
     fn write_vectored(&mut self, bufs: &[IoSlice<'_>]) -> IOResult<usize> {
-        let data = bufs
-            .iter()
-            .flat_map(|b| b.as_ref())
-            .copied()
-            .collect::<Data>();
-
-        let data_len = data.len();
-
-        match self.sender.send(data) {
-            Ok(_) => Ok(data_len),
+        let n = self.state.write_vectored(bufs)?;
+        match self.sender.send(()) {
+            Ok(_) => Ok(n),
             Err(e) => Err(Error::new(ErrorKind::WriteZero, e)),
         }
     }
 
     fn flush(&mut self) -> IOResult<()> {
-        Ok(())
+        self.state.flush()
+    }
+
+    fn write_all(&mut self, buf: &[u8]) -> IOResult<()> {
+        let n = self.state.write_all(buf)?;
+        match self.sender.send(()) {
+            Ok(_) => Ok(n),
+            Err(e) => Err(Error::new(ErrorKind::WriteZero, e)),
+        }
+    }
+
+    fn write_fmt(&mut self, fmt: Arguments<'_>) -> IOResult<()> {
+        self.state.write_fmt(fmt)?;
+        match self.sender.send(()) {
+            Ok(_) => Ok(()),
+            Err(e) => Err(Error::new(ErrorKind::WriteZero, e)),
+        }
     }
 }
 
@@ -116,22 +135,25 @@ impl Write for Writer {
 /// ```
 #[derive(Debug)]
 pub struct Reader {
-    pub(crate) receiver: Receiver<Data>,
-    pub(crate) buf: Data,
+    pub(crate) receiver: Receiver<()>,
+    pub(crate) buf: VecDeque<u8>,
+    pub(crate) state: SharedState,
 }
 
 impl BufRead for Reader {
     fn fill_buf(&mut self) -> IOResult<&[u8]> {
-        if self.buf.is_empty() {
-            if let Ok(data) = self.receiver.recv() {
-                self.buf.extend(data);
+        while self.buf.is_empty() {
+            let n = std::io::copy(&mut self.state, &mut self.buf)?;
+            if n == 0 && self.receiver.recv().is_err() {
+                break;
             }
         }
-        Ok(self.buf.as_ref())
+
+        self.buf.fill_buf()
     }
 
     fn consume(&mut self, amt: usize) {
-        self.buf.drain(..amt);
+        self.buf.consume(amt)
     }
 }
 
@@ -144,7 +166,7 @@ impl Read for Reader {
 }
 #[cfg(test)]
 mod tests {
-    use std::io::{read_to_string, BufRead, IoSlice, Write};
+    use std::io::{read_to_string, BufRead, IoSlice, Read, Write};
     use std::thread::spawn;
 
     #[test]
@@ -229,5 +251,21 @@ mod tests {
         drop(writer);
 
         assert_eq!(2, reader.lines().map(|l| assert!(l.is_ok())).count())
+    }
+
+    #[test]
+    fn threads_write_and_read_case() {
+        let (writer, mut reader) = crate::pipe();
+
+        for _ in 0..1000 {
+            let mut writer = writer.clone();
+            spawn(move || {
+                writer.write_all(&[0; 4]).unwrap();
+            });
+
+            let mut buf = [0; 4];
+            assert_eq!(buf.len(), reader.read(&mut buf).unwrap());
+        }
+        drop(writer);
     }
 }

@@ -66,7 +66,7 @@
 //! use futures::executor::block_on;
 //!
 //! block_on(async {
-//!     let (mut writer, mut reader) = async_pipe(1024);
+//!     let (mut writer, mut reader) = async_pipe();
 //!     
 //!     writer.write_all(b"hello").await.unwrap();
 //!     drop(writer);
@@ -94,5 +94,6 @@ pub use sync_pipe::{pipe, Reader, Writer};
 
 #[cfg(feature = "async")]
 mod async_pipe;
+mod state;
 #[cfg(feature = "sync")]
 mod sync_pipe;

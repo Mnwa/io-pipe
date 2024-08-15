@@ -1,15 +1,14 @@
 use std::collections::VecDeque;
 use std::future::Future;
-use std::io::{Error, ErrorKind, IoSlice, Write};
+use std::io::{BufRead, Error, ErrorKind, IoSlice, Write};
 use std::pin::Pin;
 use std::task::{Context, Poll, Waker};
 
 use futures_io::{AsyncBufRead, AsyncRead, AsyncWrite};
 use loole::{unbounded, Receiver, RecvFuture, Sender, TrySendError};
 
+use crate::state::SharedState;
 use crate::{Reader, Writer};
-
-type Data = Vec<u8>;
 
 /// Creates a pair of asynchronous writer and reader objects.
 ///
@@ -34,15 +33,18 @@ type Data = Vec<u8>;
 /// ```
 pub fn async_pipe() -> (AsyncWriter, AsyncReader) {
     let (sender, receiver) = unbounded();
+    let state = SharedState::default();
 
     (
         AsyncWriter {
             sender,
+            state: state.clone(),
             wakers: VecDeque::new(),
         },
         AsyncReader {
             receiver,
-            buf: Data::new(),
+            state,
+            buf: VecDeque::new(),
             reading: None,
         },
     )
@@ -73,12 +75,17 @@ pub fn async_pipe() -> (AsyncWriter, AsyncReader) {
 #[cfg(feature = "sync")]
 pub fn async_reader_pipe() -> (Writer, AsyncReader) {
     let (sender, receiver) = unbounded();
+    let state = SharedState::default();
 
     (
-        Writer { sender },
+        Writer {
+            sender,
+            state: state.clone(),
+        },
         AsyncReader {
             receiver,
-            buf: Data::new(),
+            state,
+            buf: VecDeque::new(),
             reading: None,
         },
     )
@@ -109,15 +116,18 @@ pub fn async_reader_pipe() -> (Writer, AsyncReader) {
 #[cfg(feature = "sync")]
 pub fn async_writer_pipe() -> (AsyncWriter, Reader) {
     let (sender, receiver) = unbounded();
+    let state = SharedState::default();
 
     (
         AsyncWriter {
             sender,
+            state: state.clone(),
             wakers: VecDeque::new(),
         },
         Reader {
             receiver,
-            buf: Data::new(),
+            state,
+            buf: VecDeque::new(),
         },
     )
 }
@@ -127,8 +137,9 @@ pub fn async_writer_pipe() -> (AsyncWriter, Reader) {
 /// This struct allows writing data asynchronously, which can be read from a corresponding `AsyncReader`.
 #[derive(Debug)]
 pub struct AsyncWriter {
-    sender: Sender<Data>,
+    sender: Sender<()>,
     wakers: VecDeque<Waker>,
+    state: SharedState,
 }
 
 impl Clone for AsyncWriter {
@@ -136,6 +147,30 @@ impl Clone for AsyncWriter {
         Self {
             sender: self.sender.clone(),
             wakers: VecDeque::new(),
+            state: self.state.clone(),
+        }
+    }
+}
+
+impl AsyncWriter {
+    fn poll_send(&mut self, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        match self.sender.try_send(()) {
+            Ok(_) => {
+                if let Some(waker) = self.wakers.pop_front() {
+                    waker.wake()
+                }
+                Poll::Ready(Ok(()))
+            }
+            Err(TrySendError::Full(_)) => {
+                self.wakers.push_back(cx.waker().clone());
+                Poll::Pending
+            }
+            Err(e @ TrySendError::Disconnected(_)) => {
+                if let Some(waker) = self.wakers.pop_front() {
+                    waker.wake()
+                }
+                Poll::Ready(Err(Error::new(ErrorKind::WriteZero, e)))
+            }
         }
     }
 }
@@ -146,23 +181,10 @@ impl AsyncWrite for AsyncWriter {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<std::io::Result<usize>> {
-        match self.sender.try_send(buf.to_vec()) {
-            Ok(_) => {
-                if let Some(waker) = self.wakers.pop_front() {
-                    waker.wake()
-                }
-                Poll::Ready(Ok(buf.len()))
-            }
-            Err(TrySendError::Full(_)) => {
-                self.wakers.push_back(cx.waker().clone());
-                Poll::Pending
-            }
-            Err(e @ TrySendError::Disconnected(_)) => {
-                if let Some(waker) = self.wakers.pop_front() {
-                    waker.wake()
-                }
-                Poll::Ready(Err(Error::new(ErrorKind::WriteZero, e)))
-            }
+        let n = self.state.write(buf)?;
+        match self.poll_send(cx)? {
+            Poll::Ready(_) => Poll::Ready(Ok(n)),
+            Poll::Pending => Poll::Pending,
         }
     }
 
@@ -171,36 +193,15 @@ impl AsyncWrite for AsyncWriter {
         cx: &mut Context<'_>,
         bufs: &[IoSlice<'_>],
     ) -> Poll<std::io::Result<usize>> {
-        let data = bufs
-            .iter()
-            .flat_map(|b| b.as_ref())
-            .copied()
-            .collect::<Data>();
-
-        let data_len = data.len();
-
-        match self.sender.try_send(data.to_vec()) {
-            Ok(_) => {
-                if let Some(waker) = self.wakers.pop_front() {
-                    waker.wake()
-                }
-                Poll::Ready(Ok(data_len))
-            }
-            Err(TrySendError::Full(_)) => {
-                self.wakers.push_back(cx.waker().clone());
-                Poll::Pending
-            }
-            Err(e @ TrySendError::Disconnected(_)) => {
-                if let Some(waker) = self.wakers.pop_front() {
-                    waker.wake()
-                }
-                Poll::Ready(Err(Error::new(ErrorKind::WriteZero, e)))
-            }
+        let n = self.state.write_vectored(bufs)?;
+        match self.poll_send(cx)? {
+            Poll::Ready(_) => Poll::Ready(Ok(n)),
+            Poll::Pending => Poll::Pending,
         }
     }
 
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        Poll::Ready(Ok(()))
+    fn poll_flush(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Poll::Ready(self.state.flush())
     }
 
     fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
@@ -214,35 +215,44 @@ impl AsyncWrite for AsyncWriter {
 /// This struct allows reading data asynchronously that was written to a corresponding `AsyncWriter`.
 #[derive(Debug)]
 pub struct AsyncReader {
-    receiver: Receiver<Data>,
-    buf: Data,
-    reading: Option<RecvFuture<Data>>,
+    receiver: Receiver<()>,
+    buf: VecDeque<u8>,
+    reading: Option<RecvFuture<()>>,
+    state: SharedState,
 }
 
 impl AsyncBufRead for AsyncReader {
-    fn poll_fill_buf(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<std::io::Result<&[u8]>> {
-        if self.buf.is_empty() {
-            if self.reading.is_none() {
-                self.reading = Some(self.receiver.recv_async())
-            }
-            match Pin::new(self.reading.as_mut().unwrap()).poll(cx) {
-                Poll::Ready(Ok(data)) => {
-                    self.buf.extend(data);
-                    self.reading = None
+    fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<&[u8]>> {
+        let this = self.get_mut();
+        while this.buf.is_empty() {
+            let n = std::io::copy(&mut this.state, &mut this.buf)?;
+            if n == 0 {
+                if this.reading.is_none() {
+                    this.reading = Some(this.receiver.recv_async())
                 }
-                Poll::Ready(Err(_)) => self.reading = None,
-                Poll::Pending => return Poll::Pending,
+
+                match Pin::new(this.reading.as_mut().unwrap()).poll(cx) {
+                    Poll::Ready(Ok(_)) => {
+                        this.reading = None;
+                    }
+                    Poll::Ready(Err(_)) => {
+                        this.reading = None;
+                        break;
+                    }
+                    Poll::Pending => return Poll::Pending,
+                }
             }
         }
 
-        Poll::Ready(Ok(self.get_mut().buf.as_ref()))
+        if this.buf.is_empty() {
+            _ = std::io::copy(&mut this.state, &mut this.buf)?;
+        }
+
+        Poll::Ready(this.buf.fill_buf())
     }
 
     fn consume(mut self: Pin<&mut Self>, amt: usize) {
-        self.buf.drain(..amt);
+        self.buf.consume(amt)
     }
 }
 
@@ -252,15 +262,11 @@ impl AsyncRead for AsyncReader {
         cx: &mut Context<'_>,
         mut buf: &mut [u8],
     ) -> Poll<std::io::Result<usize>> {
-        let data = match self.as_mut().poll_fill_buf(cx) {
-            Poll::Ready(Ok(buf)) => buf,
-            Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+        let data = match self.as_mut().poll_fill_buf(cx)? {
+            Poll::Ready(buf) => buf,
             Poll::Pending => return Poll::Pending,
         };
-        let n = match buf.write(data) {
-            Ok(n) => n,
-            Err(e) => return Poll::Ready(Err(e)),
-        };
+        let n = buf.write(data)?;
         self.consume(n);
         Poll::Ready(Ok(n))
     }
@@ -431,5 +437,26 @@ mod tests {
         reader.read_to_string(&mut str).unwrap();
 
         assert_eq!("hello".repeat(1000), str);
+    }
+
+    #[test]
+    fn threads_write_and_read_case() {
+        let (writer, mut reader) = crate::async_pipe();
+
+        for _ in 0..1000 {
+            let mut writer = writer.clone();
+
+            spawn(move || {
+                block_on(async {
+                    writer.write_all(&[0; 4]).await.unwrap();
+                })
+            });
+
+            block_on(async {
+                let mut buf = [0; 4];
+                assert_eq!(buf.len(), reader.read(&mut buf).await.unwrap());
+            })
+        }
+        drop(writer);
     }
 }
