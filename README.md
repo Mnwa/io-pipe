@@ -88,27 +88,6 @@ fn main() {
 }
 ```
 
-### Sync To Asynchronous API
-
-```rust
-use io_pipe::async_reader_pipe;
-use futures::io::{AsyncWriteExt, AsyncReadExt};
-use futures::executor::block_on;
-
-fn main() {
-    block_on(async {
-        let (mut writer, mut reader) = async_pipe();
-
-        writer.write_all(b"hello").await.unwrap();
-        drop(writer);
-
-        let mut buffer = String::new();
-        reader.read_to_string(&mut buffer).await.unwrap();
-        assert_eq!("hello", buffer);
-    });
-}
-```
-
 #### Sync to Async Example
 
 ```rust
