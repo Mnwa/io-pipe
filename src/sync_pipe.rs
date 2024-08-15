@@ -191,7 +191,7 @@ mod tests {
         }
         drop(writer);
 
-        assert_eq!("hello".len() * 1000, read_to_string(reader).unwrap().len());
+        assert_eq!("hello".repeat(1000), read_to_string(reader).unwrap());
     }
 
     #[test]

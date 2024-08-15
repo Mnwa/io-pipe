@@ -344,7 +344,7 @@ mod tests {
                 async { read_fut.await.unwrap() }
             );
 
-            assert_eq!("hello".len() * 1000, str.len());
+            assert_eq!("hello".repeat(writers_len), str);
         });
     }
 
@@ -408,7 +408,7 @@ mod tests {
             let mut str = String::new();
             reader.read_to_string(&mut str).await.unwrap();
 
-            assert_eq!("hello".len() * 1000, str.len());
+            assert_eq!("hello".repeat(1000), str);
         })
     }
 
@@ -430,6 +430,6 @@ mod tests {
         let mut str = String::new();
         reader.read_to_string(&mut str).unwrap();
 
-        assert_eq!("hello".len() * 1000, str.len());
+        assert_eq!("hello".repeat(1000), str);
     }
 }
