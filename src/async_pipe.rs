@@ -8,7 +8,6 @@ use futures_io::{AsyncBufRead, AsyncRead, AsyncWrite};
 use loole::{unbounded, Receiver, RecvFuture, Sender, TrySendError};
 
 use crate::state::SharedState;
-use crate::{Reader, Writer};
 
 /// Creates a pair of asynchronous writer and reader objects.
 ///
@@ -73,12 +72,12 @@ pub fn async_pipe() -> (AsyncWriter, AsyncReader) {
 /// ```
 #[cfg(feature = "async")]
 #[cfg(feature = "sync")]
-pub fn async_reader_pipe() -> (Writer, AsyncReader) {
+pub fn async_reader_pipe() -> (crate::Writer, AsyncReader) {
     let (sender, receiver) = unbounded();
     let state = SharedState::default();
 
     (
-        Writer {
+        crate::Writer {
             sender,
             state: state.clone(),
         },
@@ -114,7 +113,7 @@ pub fn async_reader_pipe() -> (Writer, AsyncReader) {
 /// ```
 #[cfg(feature = "async")]
 #[cfg(feature = "sync")]
-pub fn async_writer_pipe() -> (AsyncWriter, Reader) {
+pub fn async_writer_pipe() -> (AsyncWriter, crate::Reader) {
     let (sender, receiver) = unbounded();
     let state = SharedState::default();
 
@@ -124,7 +123,7 @@ pub fn async_writer_pipe() -> (AsyncWriter, Reader) {
             state: state.clone(),
             wakers: VecDeque::new(),
         },
-        Reader {
+        crate::Reader {
             receiver,
             state,
             buf: VecDeque::new(),
@@ -225,7 +224,7 @@ impl AsyncBufRead for AsyncReader {
     fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<&[u8]>> {
         let this = self.get_mut();
         while this.buf.is_empty() {
-            let n = std::io::copy(&mut this.state, &mut this.buf)?;
+            let n = this.state.copy_to(&mut this.buf)?;
             if n == 0 {
                 if this.reading.is_none() {
                     this.reading = Some(this.receiver.recv_async())
@@ -245,7 +244,7 @@ impl AsyncBufRead for AsyncReader {
         }
 
         if this.buf.is_empty() {
-            _ = std::io::copy(&mut this.state, &mut this.buf)?;
+            _ = this.state.copy_to(&mut this.buf)?;
         }
 
         Poll::Ready(this.buf.fill_buf())

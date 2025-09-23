@@ -124,12 +124,12 @@
 //! - [`async_pipe`], [`AsyncWriter`], and [`AsyncReader`] for asynchronous operations
 
 #[cfg(feature = "async")]
-pub use async_pipe::{async_pipe, AsyncReader, AsyncWriter};
+pub use async_pipe::{AsyncReader, AsyncWriter, async_pipe};
 #[cfg(feature = "async")]
 #[cfg(feature = "sync")]
 pub use async_pipe::{async_reader_pipe, async_writer_pipe};
 #[cfg(feature = "sync")]
-pub use sync_pipe::{pipe, Reader, Writer};
+pub use sync_pipe::{Reader, Writer, pipe};
 
 #[cfg(feature = "async")]
 mod async_pipe;

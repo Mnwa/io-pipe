@@ -3,7 +3,7 @@ use std::fmt::Arguments;
 use std::io::{BufRead, IoSlice};
 use std::io::{Error, ErrorKind, Read, Result as IOResult, Write};
 
-use loole::{unbounded, Receiver, Sender};
+use loole::{Receiver, Sender, unbounded};
 
 use crate::state::SharedState;
 
@@ -143,7 +143,7 @@ pub struct Reader {
 impl BufRead for Reader {
     fn fill_buf(&mut self) -> IOResult<&[u8]> {
         while self.buf.is_empty() {
-            let n = std::io::copy(&mut self.state, &mut self.buf)?;
+            let n = self.state.copy_to(&mut self.buf)?;
             if n == 0 && self.receiver.recv().is_err() {
                 break;
             }
@@ -166,7 +166,7 @@ impl Read for Reader {
 }
 #[cfg(test)]
 mod tests {
-    use std::io::{read_to_string, BufRead, IoSlice, Read, Write};
+    use std::io::{BufRead, IoSlice, Read, Write, read_to_string};
     use std::thread::spawn;
 
     #[test]

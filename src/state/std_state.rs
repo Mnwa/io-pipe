@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 use std::fmt::Arguments;
-use std::io::{IoSlice, Read, Write};
+use std::io::{IoSlice, Write};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug, Default)]
@@ -11,9 +11,10 @@ pub(crate) struct State {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct SharedState(Arc<Mutex<State>>);
 
-impl Read for SharedState {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        self.0.lock().unwrap().buf.read(buf)
+impl crate::state::SharedState {
+    pub(crate) fn copy_to<T: Write>(&self, writer: &mut T) -> std::io::Result<u64> {
+        let self_buf = &mut self.0.lock().unwrap().buf;
+        std::io::copy(self_buf, writer)
     }
 }
 
