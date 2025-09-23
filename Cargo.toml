@@ -12,13 +12,15 @@ keywords = ["io", "pipe", "multi-writer", "single-reader", "thread-safe"]
 categories = ["algorithms", "data-structures", "concurrency", "asynchronous"]
 
 [features]
-default = ["sync"]
+default = ["sync", "fast-mutex"]
 sync = []
+fast-mutex = ["dep:parking_lot"]
 async = ["dep:futures-io"]
 
 [dependencies]
 loole = { version = "0.4" }
 futures-io = { version = "0.3", optional = true }
+parking_lot = { version = "0.12", optional = true }
 
 [dev-dependencies]
 criterion = "0.7"

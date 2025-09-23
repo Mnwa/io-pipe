@@ -16,8 +16,8 @@ fn criterion_benchmark(c: &mut Criterion) {
         let (mut writer, reader) = io_pipe::pipe();
 
         b.iter_batched(
-            || vec![IoSlice::new(&[0, 0, 0, 0]); 100],
-            |slice| writer.write_vectored(black_box(slice.as_slice())).unwrap(),
+            || vec![IoSlice::new(black_box(&[0, 0, 0, 0])); 100],
+            |slice| writer.write_vectored(slice.as_slice()).unwrap(),
             BatchSize::LargeInput,
         );
         drop(reader)
@@ -27,10 +27,10 @@ fn criterion_benchmark(c: &mut Criterion) {
 
         b.iter_batched(
             || {
-                writer.write_all(&[0, 0, 0, 0]).unwrap();
-                [0; 4]
+                writer.write_all(black_box(&[0, 0, 0, 0])).unwrap();
+                black_box([0; 4])
             },
-            |mut buf| assert_eq!(buf.len(), reader.read(black_box(&mut buf)).unwrap()),
+            |mut buf| assert_eq!(buf.len(), reader.read(&mut buf).unwrap()),
             BatchSize::SmallInput,
         );
         drop(writer);
@@ -45,12 +45,12 @@ fn criterion_benchmark(c: &mut Criterion) {
                 spawn({
                     let mut writer = writer.clone();
                     move || {
-                        writer.write_all(&[0, 0, 0, 0]).unwrap();
+                        writer.write_all(black_box(&[0, 0, 0, 0])).unwrap();
                     }
                 });
-                [0; 4]
+                black_box([0; 4])
             },
-            |mut buf| assert_eq!(buf.len(), reader.read(black_box(&mut buf)).unwrap()),
+            |mut buf| assert_eq!(buf.len(), reader.read(&mut buf).unwrap()),
             BatchSize::SmallInput,
         );
         drop(writer);
