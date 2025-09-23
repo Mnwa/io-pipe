@@ -17,7 +17,7 @@ sync = []
 async = ["dep:futures-io"]
 
 [dependencies]
-loole = { version = "0.3" }
+loole = { version = "0.4" }
 futures-io = { version = "0.3", optional = true }
 
 [dev-dependencies]
