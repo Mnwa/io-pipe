@@ -5,7 +5,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll, Waker};
 
 use futures_io::{AsyncBufRead, AsyncRead, AsyncWrite};
-use loole::{unbounded, Receiver, RecvFuture, Sender, TrySendError};
+use loole::{Receiver, RecvFuture, Sender, TrySendError, unbounded};
 
 use crate::state::SharedState;
 
@@ -277,7 +277,7 @@ mod tests {
     use std::thread::spawn;
 
     use futures::{
-        executor::block_on, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, StreamExt, TryStreamExt,
+        AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, StreamExt, TryStreamExt, executor::block_on,
     };
 
     #[test]
