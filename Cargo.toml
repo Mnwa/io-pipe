@@ -1,8 +1,8 @@
 [package]
 name = "io-pipe"
-version = "0.6.2"
+version = "0.7.0"
 authors = ["Mnwa <mikhail@panfilov.tech>"]
-edition = "2021"
+edition = "2024"
 description = "A fast and thread-safe library for creating multi-writer and single-reader pipelines in Rust."
 repository = "https://github.com/Mnwa/io-pipe"
 documentation = "https://docs.rs/io-pipe/latest/io_pipe/"
