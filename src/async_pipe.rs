@@ -38,7 +38,7 @@ pub fn async_pipe() -> (AsyncWriter, AsyncReader) {
         AsyncWriter {
             sender,
             state: state.clone(),
-            send_future: None,
+            write_state: None,
         },
         AsyncReader {
             receiver,
@@ -121,7 +121,7 @@ pub fn async_writer_pipe() -> (AsyncWriter, crate::Reader) {
         AsyncWriter {
             sender,
             state: state.clone(),
-            send_future: None,
+            write_state: None,
         },
         crate::Reader {
             receiver,
@@ -131,13 +131,19 @@ pub fn async_writer_pipe() -> (AsyncWriter, crate::Reader) {
     )
 }
 
+#[derive(Debug)]
+struct WriteState {
+    send_future: SendFuture<()>,
+    n: usize,
+}
+
 /// An asynchronous writer that implements `AsyncWrite`.
 ///
 /// This struct allows writing data asynchronously, which can be read from a corresponding `AsyncReader`.
 #[derive(Debug)]
 pub struct AsyncWriter {
     sender: Sender<()>,
-    send_future: Option<SendFuture<()>>,
+    write_state: Option<WriteState>,
     state: SharedState,
 }
 
@@ -145,24 +151,22 @@ impl Clone for AsyncWriter {
     fn clone(&self) -> Self {
         Self {
             sender: self.sender.clone(),
-            send_future: None,
+            write_state: None,
             state: self.state.clone(),
         }
     }
 }
 
 impl AsyncWriter {
-    fn poll_send(&mut self, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        if self.send_future.is_none() {
-            self.send_future = Some(self.sender.send_async(()));
-        }
-        match Pin::new(&mut self.send_future.as_mut().unwrap()).poll(cx) {
+    fn poll_send(&mut self, cx: &mut Context<'_>) -> Poll<std::io::Result<usize>> {
+        match Pin::new(&mut self.write_state.as_mut().unwrap().send_future).poll(cx) {
             Poll::Ready(Ok(_)) => {
-                self.send_future = None;
-                Poll::Ready(Ok(()))
+                let n = self.write_state.as_mut().unwrap().n;
+                self.write_state = None;
+                Poll::Ready(Ok(n))
             }
             Poll::Ready(Err(e)) => {
-                self.send_future = None;
+                self.write_state = None;
                 Poll::Ready(Err(Error::new(ErrorKind::WriteZero, e)))
             }
             Poll::Pending => Poll::Pending,
@@ -176,9 +180,14 @@ impl AsyncWrite for AsyncWriter {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<std::io::Result<usize>> {
-        let n = self.state.write(buf)?;
+        if self.write_state.is_none() {
+            self.write_state = Some(WriteState {
+                send_future: self.sender.send_async(()),
+                n: self.state.write(buf)?,
+            });
+        }
         match self.poll_send(cx)? {
-            Poll::Ready(_) => Poll::Ready(Ok(n)),
+            Poll::Ready(n) => Poll::Ready(Ok(n)),
             Poll::Pending => Poll::Pending,
         }
     }
@@ -188,9 +197,14 @@ impl AsyncWrite for AsyncWriter {
         cx: &mut Context<'_>,
         bufs: &[IoSlice<'_>],
     ) -> Poll<std::io::Result<usize>> {
-        let n = self.state.write_vectored(bufs)?;
+        if self.write_state.is_none() {
+            self.write_state = Some(WriteState {
+                send_future: self.sender.send_async(()),
+                n: self.state.write_vectored(bufs)?,
+            });
+        }
         match self.poll_send(cx)? {
-            Poll::Ready(_) => Poll::Ready(Ok(n)),
+            Poll::Ready(n) => Poll::Ready(Ok(n)),
             Poll::Pending => Poll::Pending,
         }
     }
