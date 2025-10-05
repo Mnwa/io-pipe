@@ -2,10 +2,10 @@ use std::collections::VecDeque;
 use std::future::Future;
 use std::io::{BufRead, Error, ErrorKind, IoSlice, Write};
 use std::pin::Pin;
-use std::task::{Context, Poll, Waker};
+use std::task::{Context, Poll};
 
 use futures_io::{AsyncBufRead, AsyncRead, AsyncWrite};
-use loole::{Receiver, RecvFuture, Sender, TrySendError, unbounded};
+use loole::{Receiver, RecvFuture, SendFuture, Sender, unbounded};
 
 use crate::state::SharedState;
 
@@ -38,7 +38,7 @@ pub fn async_pipe() -> (AsyncWriter, AsyncReader) {
         AsyncWriter {
             sender,
             state: state.clone(),
-            wakers: VecDeque::new(),
+            send_future: None,
         },
         AsyncReader {
             receiver,
@@ -121,7 +121,7 @@ pub fn async_writer_pipe() -> (AsyncWriter, crate::Reader) {
         AsyncWriter {
             sender,
             state: state.clone(),
-            wakers: VecDeque::new(),
+            send_future: None,
         },
         crate::Reader {
             receiver,
@@ -137,7 +137,7 @@ pub fn async_writer_pipe() -> (AsyncWriter, crate::Reader) {
 #[derive(Debug)]
 pub struct AsyncWriter {
     sender: Sender<()>,
-    wakers: VecDeque<Waker>,
+    send_future: Option<SendFuture<()>>,
     state: SharedState,
 }
 
@@ -145,7 +145,7 @@ impl Clone for AsyncWriter {
     fn clone(&self) -> Self {
         Self {
             sender: self.sender.clone(),
-            wakers: VecDeque::new(),
+            send_future: None,
             state: self.state.clone(),
         }
     }
@@ -153,23 +153,19 @@ impl Clone for AsyncWriter {
 
 impl AsyncWriter {
     fn poll_send(&mut self, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        match self.sender.try_send(()) {
-            Ok(_) => {
-                if let Some(waker) = self.wakers.pop_front() {
-                    waker.wake()
-                }
+        if self.send_future.is_none() {
+            self.send_future = Some(self.sender.send_async(()));
+        }
+        match Pin::new(&mut self.send_future.as_mut().unwrap()).poll(cx) {
+            Poll::Ready(Ok(_)) => {
+                self.send_future = None;
                 Poll::Ready(Ok(()))
             }
-            Err(TrySendError::Full(_)) => {
-                self.wakers.push_back(cx.waker().clone());
-                Poll::Pending
-            }
-            Err(e @ TrySendError::Disconnected(_)) => {
-                if let Some(waker) = self.wakers.pop_front() {
-                    waker.wake()
-                }
+            Poll::Ready(Err(e)) => {
+                self.send_future = None;
                 Poll::Ready(Err(Error::new(ErrorKind::WriteZero, e)))
             }
+            Poll::Pending => Poll::Pending,
         }
     }
 }
