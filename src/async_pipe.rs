@@ -162,7 +162,7 @@ impl AsyncWriter {
         debug_assert!(self.write_state.is_some());
         match Pin::new(&mut self.write_state.as_mut().unwrap().send_future).poll(cx) {
             Poll::Ready(Ok(_)) => {
-                let n = self.write_state.map(|s| s.n).unwrap();
+                let n = self.write_state.as_ref().map(|s| s.n).unwrap();
                 self.write_state = None;
                 Poll::Ready(Ok(n))
             }
